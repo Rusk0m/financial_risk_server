@@ -1,7 +1,7 @@
 package interfaces
 
 import (
-	"finantial-risk-server/internal/domain/models"
+	"financial-risk-server/internal/domain/models"
 	"time"
 )
 
@@ -67,5 +67,15 @@ type RiskCalculationRepository interface {
 	GetByDateRange(enterpriseID int64, start, end time.Time) ([]*models.RiskResult, error)
 	GetLatest(enterpriseID int64, riskType models.RiskType) (*models.RiskResult, error)
 	Update(result *models.RiskResult) error
+	Delete(id int64) error
+}
+
+// ComprehensiveRiskReportRepository определяет методы для работы с комплексными отчётами
+type ComprehensiveRiskReportRepository interface {
+	Create(report *models.ComprehensiveRiskReport) error
+	GetByID(id int64) (*models.ComprehensiveRiskReport, error)
+	GetByEnterpriseID(enterpriseID int64) ([]*models.ComprehensiveRiskReport, error)
+	GetLatest(enterpriseID int64) (*models.ComprehensiveRiskReport, error)
+	Update(report *models.ComprehensiveRiskReport) error
 	Delete(id int64) error
 }

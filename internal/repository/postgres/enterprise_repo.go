@@ -3,8 +3,8 @@ package postgres
 import (
 	"database/sql"
 	"errors"
-	"finantial-risk-server/internal/domain/models"
-	"finantial-risk-server/internal/repository/interfaces"
+	"financial-risk-server/internal/domain/models"
+	"financial-risk-server/internal/repository/interfaces"
 	"time"
 )
 
@@ -18,6 +18,10 @@ func NewEnterpriseRepository(db *DB) interfaces.EnterpriseRepository {
 }
 
 func (r *enterpriseRepository) Create(e *models.Enterprise) error {
+	// Валидация данных перед сохранением
+	if err := e.IsValid(); err != nil {
+		return err
+	}
 	query := `
         INSERT INTO enterprises (name, industry, annual_production_t, 
                                  export_share_percent, main_currency, created_at, updated_at)

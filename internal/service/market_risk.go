@@ -2,8 +2,8 @@ package service
 
 import (
 	"errors"
-	"finantial-risk-server/internal/domain/models"
-	"finantial-risk-server/internal/repository/interfaces"
+	"financial-risk-server/internal/domain/models"
+	"financial-risk-server/internal/repository/interfaces"
 	"math"
 	"time"
 )

@@ -1,6 +1,6 @@
 package service
 
-import "finantial-risk-server/internal/repository/interfaces"
+import "financial-risk-server/internal/repository/interfaces"
 
 // ServiceFactory фабрика для создания сервисов
 type ServiceFactory struct {
@@ -32,6 +32,7 @@ func (f *ServiceFactory) CreateRiskCalculationService(
 	costRepo interfaces.CostStructureRepository,
 	enterpriseRepo interfaces.EnterpriseRepository,
 	riskCalcRepo interfaces.RiskCalculationRepository,
+	reportRepo interfaces.ComprehensiveRiskReportRepository,
 ) RiskCalculationService {
 
 	// Создаём отдельные сервисы для каждого типа риска
@@ -40,7 +41,6 @@ func (f *ServiceFactory) CreateRiskCalculationService(
 	liquidityRiskService := NewLiquidityRiskService(balanceRepo, costRepo, f.config)
 	marketRiskService := NewMarketRiskService(enterpriseRepo, marketRepo, exportRepo, f.config)
 	interestRiskService := NewInterestRiskService(balanceRepo, f.config)
-
 	// Создаём агрегирующий сервис
 	aggregator := NewRiskAggregatorService(
 		currencyRiskService,

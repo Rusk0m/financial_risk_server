@@ -1,4 +1,4 @@
-module finantial-risk-server
+module financial-risk-server
 
 go 1.25.0
 

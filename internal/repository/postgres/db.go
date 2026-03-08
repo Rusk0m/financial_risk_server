@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"database/sql"
-	"finantial-risk-server/internal/config"
+	"financial-risk-server/internal/config"
 	"fmt"
 	"time"
 

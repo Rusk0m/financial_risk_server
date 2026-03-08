@@ -1,7 +1,7 @@
 package service
 
 import (
-	"finantial-risk-server/internal/domain/models"
+	"financial-risk-server/internal/domain/models"
 	"math"
 )
 
