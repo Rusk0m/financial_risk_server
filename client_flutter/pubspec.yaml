@@ -1,0 +1,37 @@
+name: client_flutter
+description: "A new Flutter project."
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.9.2
+  pretty_dio_logger: ^1.4.0
+  flutter_bloc: ^9.1.1
+  fl_chart: ^1.1.1
+  intl: ^0.20.2
+  responsive_framework: ^1.5.1
+  json_annotation: ^4.11.0
+  get_it: ^9.2.1
+  file_picker: ^10.3.10
+  universal_html: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  json_serializable: ^6.13.0
+  build_runner: ^2.12.2
+
+flutter:
+
+  uses-material-design: true
+  generate: true
+  # Изображения
+  assets:
+    - assets/images/
