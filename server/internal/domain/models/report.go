@@ -15,7 +15,7 @@ type Report struct {
 	FileSizeBytes   int64     `json:"file_size_bytes"`
 	UploadDate      time.Time `json:"upload_date"`
 	ProcessingStatus string   `json:"processing_status"` // pending, processed, error, archived
-	ProcessingError string    `json:"processing_error,omitempty"`
+	ProcessingError *string    `json:"processing_error,omitempty"`
 	PeriodStart     *time.Time `json:"period_start,omitempty"`
 	PeriodEnd       *time.Time `json:"period_end,omitempty"`
 	UploadedBy      string    `json:"uploaded_by,omitempty"`

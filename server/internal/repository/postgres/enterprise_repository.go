@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"financial-risk-server/internal/domain/models"
@@ -78,12 +79,16 @@ func (r *EnterpriseRepository) GetByID(ctx context.Context, id int64) (*models.E
 	)
 
 	if err != nil {
+		// 🔍 Логирование ошибки с деталями
 		if errors.Is(err, sql.ErrNoRows) {
+			log.Printf("❌ [EnterpriseRepo] Предприятие не найдено: id=%d", id)
 			return nil, fmt.Errorf("enterprise not found with id %d", id)
 		}
+		log.Printf("❌ [EnterpriseRepo] Ошибка БД: %v (id=%d)", err, id)
 		return nil, fmt.Errorf("failed to get enterprise: %w", err)
 	}
-
+	
+	log.Printf("✅ [EnterpriseRepo] Предприятие найдено: id=%d, name=%q", id, enterprise.Name)
 	return enterprise, nil
 }
 

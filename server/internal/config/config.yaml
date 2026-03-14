@@ -10,7 +10,7 @@ server:
 database:
   host: "localhost"
   port: 5432
-  user: "risk_user"
+  user: "postgres"
   password: "2005"  # используем ваш пароль
   name: "financial_risk_db2"
   sslmode: "disable"

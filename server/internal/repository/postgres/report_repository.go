@@ -21,7 +21,6 @@ func NewReportRepository(db *sql.DB) *ReportRepository {
 	return &ReportRepository{db: db}
 }
 
-
 // Create создаёт новый отчёт
 func (r *ReportRepository) Create(ctx context.Context, report *models.Report) error {
 	query := `
@@ -109,7 +108,7 @@ func (r *ReportRepository) GetAll(ctx context.Context, filter interfaces.ReportF
 			file_size_bytes, upload_date, processing_status, processing_error,
 			period_start, period_end, uploaded_by, description, created_at, updated_at
 		FROM reports
-		WHERE 1=1
+		WHERE enterprise_id = 1
 	`
 
 	args := []interface{}{}
