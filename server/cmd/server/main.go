@@ -16,6 +16,7 @@ import (
 	"financial-risk-server/internal/config"
 	"financial-risk-server/internal/delivery/server"
 	"financial-risk-server/internal/delivery/server/middleware"
+	scheduler "financial-risk-server/internal/infrastructure/scheduler"
 	"financial-risk-server/internal/repository/postgres"
 	"financial-risk-server/internal/service"
 )
@@ -86,6 +87,7 @@ func main() {
 		riskRepo,
 		contractRepo,
 		balanceRepo,
+		finResultRepo,
 		creditRepo,
 		marketDataRepo,
 		enterpriseService,
@@ -97,6 +99,16 @@ func main() {
 		riskRepo,
 		enterpriseService,
 	)
+ 	marketSyncService := service.NewMarketDataSyncService(marketDataRepo)
+
+	//volatilityCalc := service.NewVolatilityCalculator(marketDataRepo)
+
+	marketSchedule := scheduler.NewMarketDataScheduler(marketSyncService,&cfg.MarketData)
+
+	if err := marketSchedule.Start(); err != nil{
+		log.Printf("⚠️  Failed to start market data scheduler: %v", err)
+	}
+	defer marketSchedule.Stop()
 
 	// 6. Настраиваем маршрутизатор (передаём сервисы, не хендлеры)
 	router := server.SetupRouter(

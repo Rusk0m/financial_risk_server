@@ -27,7 +27,6 @@ func SetupRouter(
 
 	// API версии 1
 	// Предприятия
-	//mux.HandleFunc("GET /api/v1/enterprises", enterpriseHandler.GetEnterprises)
 	mux.HandleFunc("GET /api/v1/enterprises/{id}", enterpriseHandler.GetEnterpriseByID)
 
 	// Отчёты

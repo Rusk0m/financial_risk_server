@@ -12,6 +12,7 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Uploads  UploadsConfig
+	MarketData MarketDataConfig
 }
 
 // ServerConfig конфигурация HTTP сервера
@@ -39,6 +40,12 @@ type UploadsConfig struct {
 	Directory string
 	MaxSize   int64 // в байтах
 }
+type MarketDataConfig struct {
+	Enabled             bool   `env:"MARKET_DATA_SYNC_ENABLED" default:"true"`
+	IntervalHours       int    `env:"MARKET_DATA_SYNC_INTERVAL_HOURS" default:"24"`
+	InitialDelaySeconds int    `env:"MARKET_DATA_SYNC_INITIAL_DELAY" default:"60"`
+	HistoryDays         int    `env:"MARKET_DATA_HISTORY_DAYS" default:"30"`
+}
 
 // Load загружает конфигурацию из .env файла и переменных окружения
 func Load() (*Config, error) {
@@ -65,6 +72,12 @@ func Load() (*Config, error) {
 		Uploads: UploadsConfig{
 			Directory: getEnv("UPLOADS_DIRECTORY", "./uploads"),
 			MaxSize:   getInt64Env("UPLOADS_MAX_SIZE", 10*1024*1024), // 10 МБ по умолчанию
+		},
+		MarketData: MarketDataConfig{
+			Enabled:             getBoolEnv("MARKET_DATA_SYNC_ENABLED", true),
+			IntervalHours:       getIntEnv("MARKET_DATA_SYNC_INTERVAL_HOURS", 24),
+			InitialDelaySeconds: getIntEnv("MARKET_DATA_SYNC_INITIAL_DELAY", 60),
+			HistoryDays:         getIntEnv("MARKET_DATA_HISTORY_DAYS", 30),
 		},
 	}
 
@@ -103,6 +116,18 @@ func getInt64Env(key string, defaultValue int64) int64 {
 		_, err := fmt.Sscanf(value, "%d", &result)
 		if err == nil {
 			return result
+		}
+	}
+	return defaultValue
+}
+// ✅ ДОБАВЬТЕ ЭТУ ФУНКЦИЮ:
+func getBoolEnv(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		switch value {
+		case "true", "1", "yes", "on":
+			return true
+		case "false", "0", "no", "off":
+			return false
 		}
 	}
 	return defaultValue

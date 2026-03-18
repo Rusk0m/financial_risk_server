@@ -1,39 +1,56 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ExportContract представляет экспортный контракт
 type ExportContract struct {
-	ID              int64      `json:"id"`
-	EnterpriseID    int64      `json:"enterprise_id"`                 // ID предприятия (всегда 1)
-	ReportID        *int64     `json:"report_id,omitempty"`          // ID отчёта, из которого был распарсен контракт
+	ID           int64     `json:"id"`
+	EnterpriseID int64     `json:"enterprise_id"`
+	ReportID     *int64    `json:"report_id,omitempty"`
 	
-	// Данные контракта
-	ContractNumber   string  `json:"contract_number"`               // Номер контракта (например: KC-2026-001)
-	ContractDate     time.Time `json:"contract_date"`                 // Дата заключения контракта
-	Country          string  `json:"country"`                       // Страна импортёра
-	VolumeT          float64 `json:"volume_t"`                      // Объём поставки в тоннах
-	PriceUSDPerT     float64 `json:"price_usd_per_t"`               // Цена за тонну в USD
-	Currency         string  `json:"currency"`                      // Валюта контракта (обычно USD)
-	PaymentTermDays  int     `json:"payment_term_days"`             // Срок оплаты в днях
-	ShipmentDate     time.Time `json:"shipment_date"`                 // Дата отгрузки
-	PaymentStatus    string  `json:"payment_status"`                // Статус оплаты: pending, partial, paid, overdue
-	ExchangeRate     float64 `json:"exchange_rate"`                 // Курс валюты на дату контракта
+	// === Ключевые поля для расчёта рисков ===
 	
-	// Дополнительные поля для анализа рисков
-	TNVEDCode        *string `json:"tnved_code,omitempty"`          // Код ТН ВЭД
-	Incoterms        *string `json:"incoterms,omitempty"`           // Условия поставки (FOB, CIF и т.д.)
-	InsuranceCostUSD *float64 `json:"insurance_cost_usd,omitempty"` // Стоимость страховки в USD
-	FreightCostUSD   *float64 `json:"freight_cost_usd,omitempty"`   // Стоимость фрахта в USD
+	// Для валютного и ценового риска
+	ContractDate    time.Time `json:"contract_date"`      // Дата контракта
+	PriceContract   float64   `json:"price_contract"`     // Цена контракта
+	VolumeT         float64   `json:"volume_t"`           // Объём в тоннах
+	Currency        string    `json:"currency"`           // Валюта (USD/EUR/CNY)
+	ExchangeRate    float64   `json:"exchange_rate"`      // Курс на дату контракта
 	
-	// Метаданные
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// Для риска ликвидности
+	PaymentTermDays int       `json:"payment_term_days"`  // Срок оплаты (дни)
+	ShipmentDate    time.Time `json:"shipment_date"`      // Дата отгрузки
+	PaymentStatus   string    `json:"payment_status"`     // pending/paid/overdue
+	
+	// Для странового и ценового риска
+	Country         string    `json:"country"`            // Страна импортёра
+	
+	// === Метаданные ===
+	ContractNumber  string    `json:"contract_number"`    // Только для отображения
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // GetContractValueUSD возвращает общую стоимость контракта в USD
 func (ec *ExportContract) GetContractValueUSD() float64 {
-	return ec.VolumeT * ec.PriceUSDPerT
+	baseValue := ec.PriceContract // Это общая сумма
+
+
+	
+	// Если контракт в другой валюте, конвертируем
+	switch strings.ToUpper(ec.Currency) {
+	case "EUR":
+		return baseValue * 1.08 // EUR → USD (курс обновляйте из market_data)
+	case "CNY":
+		return baseValue * 0.14 // CNY → USD
+	case "BYN":
+		return baseValue / 3.25 // BYN → USD
+	default:
+		return baseValue // Уже в USD
+	}
 }
 
 // GetExpectedBYN возвращает ожидаемую выручку в BYN по текущему курсу

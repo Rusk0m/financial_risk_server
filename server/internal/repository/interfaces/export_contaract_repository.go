@@ -13,8 +13,8 @@ type ExportContractRepository interface {
 	// GetByID получает контракт по ID
 	GetByID(ctx context.Context, id int64) (*models.ExportContract, error)
 	
-	// GetByEnterpriseID получает контракты предприятия
-	GetByEnterpriseID(ctx context.Context, enterpriseID int64) ([]*models.ExportContract, error)
+	// GetUnpaidContract получает неоплаченые контракты предприятия
+	GetUnpaidContract(ctx context.Context, enterpriseID int64) ([]*models.ExportContract, error)
 	
 	// GetByReportID получает контракты из отчёта
 	GetByReportID(ctx context.Context, reportID int64) ([]*models.ExportContract, error)

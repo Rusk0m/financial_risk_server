@@ -80,14 +80,7 @@ func (r *FinancialResultRepository) Create(ctx context.Context, result *models.F
 // GetByID получает отчёт по ID
 func (r *FinancialResultRepository) GetByID(ctx context.Context, id int64) (*models.FinancialResult, error) {
 	query := `
-		SELECT 
-			id, enterprise_id, report_id, report_date, period_start, period_end,
-			revenue_sales, revenue_export, revenue_domestic, revenue_other, revenue_total,
-			cost_of_sales, cost_raw_materials, cost_energy, cost_labor, cost_depreciation, cost_other, cost_total,
-			commercial_expenses, administrative_expenses, other_expenses,
-			gross_profit, operating_profit, profit_before_tax, tax_expense, net_profit,
-			ebitda, operating_margin, net_margin,
-			created_at, updated_at
+		SELECT *
 		FROM financial_results
 		WHERE id = $1
 	`
@@ -140,14 +133,7 @@ func (r *FinancialResultRepository) GetByID(ctx context.Context, id int64) (*mod
 // GetByEnterpriseID получает отчёты предприятия
 func (r *FinancialResultRepository) GetByEnterpriseID(ctx context.Context, enterpriseID int64) ([]*models.FinancialResult, error) {
 	query := `
-		SELECT 
-			id, enterprise_id, report_id, report_date, period_start, period_end,
-			revenue_sales, revenue_export, revenue_domestic, revenue_other, revenue_total,
-			cost_of_sales, cost_raw_materials, cost_energy, cost_labor, cost_depreciation, cost_other, cost_total,
-			commercial_expenses, administrative_expenses, other_expenses,
-			gross_profit, operating_profit, profit_before_tax, tax_expense, net_profit,
-			ebitda, operating_margin, net_margin,
-			created_at, updated_at
+		SELECT *
 		FROM financial_results
 		WHERE enterprise_id = $1
 		ORDER BY report_date DESC
@@ -208,17 +194,77 @@ func (r *FinancialResultRepository) GetByEnterpriseID(ctx context.Context, enter
 	return results, nil
 }
 
+// GetLatest получает последний отчет предприятия 
+func (r *FinancialResultRepository) GetLatest(ctx context.Context, enterpriseID int64) (*models.FinancialResult, error) {
+	query := `
+		SELECT *
+		FROM financial_results
+		WHERE enterprise_id = $1
+		ORDER BY report_date DESC
+		LIMIT 1
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, enterpriseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query financial results: %w", err)
+	}
+	defer rows.Close()
+
+	// 🔴 ДОБАВЬТЕ ПРОВЕРКУ rows.Next()
+	if !rows.Next() {
+		return nil, fmt.Errorf("no financial results found for enterprise %d", enterpriseID)
+	}
+
+	result := &models.FinancialResult{}
+	err = rows.Scan(
+		&result.ID,
+		&result.EnterpriseID,
+		&result.ReportID,
+		&result.ReportDate,
+		&result.PeriodStart,
+		&result.PeriodEnd,
+		&result.RevenueSales,
+		&result.RevenueExport,
+		&result.RevenueDomestic,
+		&result.RevenueOther,
+		&result.RevenueTotal,
+		&result.CostOfSales,
+		&result.CostRawMaterials,
+		&result.CostEnergy,
+		&result.CostLabor,
+		&result.CostDepreciation,
+		&result.CostOther,
+		&result.CostTotal,
+		&result.CommercialExpenses,
+		&result.AdministrativeExpenses,
+		&result.OtherExpenses,
+		&result.GrossProfit,
+		&result.OperatingProfit,
+		&result.ProfitBeforeTax,
+		&result.TaxExpense,
+		&result.NetProfit,
+		&result.EBITDA,
+		&result.OperatingMargin,
+		&result.NetMargin,
+		&result.CreatedAt,
+		&result.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan financial result: %w", err)
+	}
+
+	// 🔴 Проверка на ошибки итерации
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
+}
+
 // GetByReportID получает отчёт из отчёта
 func (r *FinancialResultRepository) GetByReportID(ctx context.Context, reportID int64) (*models.FinancialResult, error) {
 	query := `
-		SELECT 
-			id, enterprise_id, report_id, report_date, period_start, period_end,
-			revenue_sales, revenue_export, revenue_domestic, revenue_other, revenue_total,
-			cost_of_sales, cost_raw_materials, cost_energy, cost_labor, cost_depreciation, cost_other, cost_total,
-			commercial_expenses, administrative_expenses, other_expenses,
-			gross_profit, operating_profit, profit_before_tax, tax_expense, net_profit,
-			ebitda, operating_margin, net_margin,
-			created_at, updated_at
+		SELECT *
 		FROM financial_results
 		WHERE report_id = $1
 		ORDER BY report_date DESC
@@ -273,14 +319,7 @@ func (r *FinancialResultRepository) GetByReportID(ctx context.Context, reportID 
 // GetAll получает все отчёты
 func (r *FinancialResultRepository) GetAll(ctx context.Context) ([]*models.FinancialResult, error) {
 	query := `
-		SELECT 
-			id, enterprise_id, report_id, report_date, period_start, period_end,
-			revenue_sales, revenue_export, revenue_domestic, revenue_other, revenue_total,
-			cost_of_sales, cost_raw_materials, cost_energy, cost_labor, cost_depreciation, cost_other, cost_total,
-			commercial_expenses, administrative_expenses, other_expenses,
-			gross_profit, operating_profit, profit_before_tax, tax_expense, net_profit,
-			ebitda, operating_margin, net_margin,
-			created_at, updated_at
+		SELECT *
 		FROM financial_results
 		ORDER BY report_date DESC
 	`
@@ -340,7 +379,6 @@ func (r *FinancialResultRepository) GetAll(ctx context.Context) ([]*models.Finan
 	return results, nil
 }
 
-// Update обновляет отчёт
 // Update обновляет отчёт
 func (r *FinancialResultRepository) Update(ctx context.Context, result *models.FinancialResult) error {
 	query := `

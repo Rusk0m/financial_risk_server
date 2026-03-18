@@ -26,10 +26,9 @@ func (r *ExportContractRepository) Create(ctx context.Context, contract *models.
 	query := `
 		INSERT INTO export_contracts (
 			enterprise_id, report_id, contract_number, contract_date, country,
-			volume_t, price_usd_per_t, currency, payment_term_days, shipment_date,
-			payment_status, exchange_rate, tnved_code, incoterms,
-			insurance_cost_usd, freight_cost_usd
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			volume_t, price_contract, currency, payment_term_days, shipment_date,
+			payment_status, exchange_rate ) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -41,16 +40,12 @@ func (r *ExportContractRepository) Create(ctx context.Context, contract *models.
 		contract.ContractDate,
 		contract.Country,
 		contract.VolumeT,
-		contract.PriceUSDPerT,
+		contract.PriceContract,
 		contract.Currency,
 		contract.PaymentTermDays,
 		contract.ShipmentDate,
 		contract.PaymentStatus,
 		contract.ExchangeRate,
-		contract.TNVEDCode,
-		contract.Incoterms,
-		contract.InsuranceCostUSD,
-		contract.FreightCostUSD,
 	).Scan(&contract.ID, &createdAt, &updatedAt)
 
 	if err != nil {
@@ -69,9 +64,8 @@ func (r *ExportContractRepository) GetByID(ctx context.Context, id int64) (*mode
 	query := `
 		SELECT 
 			id, enterprise_id, report_id, contract_number, contract_date, country,
-			volume_t, price_usd_per_t, currency, payment_term_days, shipment_date,
-			payment_status, exchange_rate, tnved_code, incoterms,
-			insurance_cost_usd, freight_cost_usd, created_at, updated_at
+			volume_t, price_contract, currency, payment_term_days, shipment_date,
+			payment_status, exchange_rate, created_at, updated_at
 		FROM export_contracts
 		WHERE id = $1
 	`
@@ -85,16 +79,12 @@ func (r *ExportContractRepository) GetByID(ctx context.Context, id int64) (*mode
 		&contract.ContractDate,
 		&contract.Country,
 		&contract.VolumeT,
-		&contract.PriceUSDPerT,
+		&contract.PriceContract,
 		&contract.Currency,
 		&contract.PaymentTermDays,
 		&contract.ShipmentDate,
 		&contract.PaymentStatus,
 		&contract.ExchangeRate,
-		&contract.TNVEDCode,
-		&contract.Incoterms,
-		&contract.InsuranceCostUSD,
-		&contract.FreightCostUSD,
 		&contract.CreatedAt,
 		&contract.UpdatedAt,
 	)
@@ -110,15 +100,15 @@ func (r *ExportContractRepository) GetByID(ctx context.Context, id int64) (*mode
 }
 
 // GetByEnterpriseID получает контракты предприятия
-func (r *ExportContractRepository) GetByEnterpriseID(ctx context.Context, enterpriseID int64) ([]*models.ExportContract, error) {
+func (r *ExportContractRepository) GetUnpaidContract(ctx context.Context, enterpriseID int64) ([]*models.ExportContract, error) {
 	query := `
 		SELECT 
 			id, enterprise_id, report_id, contract_number, contract_date, country,
-			volume_t, price_usd_per_t, currency, payment_term_days, shipment_date,
-			payment_status, exchange_rate, tnved_code, incoterms,
-			insurance_cost_usd, freight_cost_usd, created_at, updated_at
+			volume_t, price_contract, currency, payment_term_days, shipment_date,
+			payment_status, exchange_rate, created_at, updated_at
 		FROM export_contracts
-		WHERE enterprise_id = $1
+		WHERE enterprise_id = $1 
+			AND payment_status != 'paid'
 		ORDER BY contract_date DESC
 	`
 
@@ -139,16 +129,12 @@ func (r *ExportContractRepository) GetByEnterpriseID(ctx context.Context, enterp
 			&contract.ContractDate,
 			&contract.Country,
 			&contract.VolumeT,
-			&contract.PriceUSDPerT,
+			&contract.PriceContract,
 			&contract.Currency,
 			&contract.PaymentTermDays,
 			&contract.ShipmentDate,
 			&contract.PaymentStatus,
 			&contract.ExchangeRate,
-			&contract.TNVEDCode,
-			&contract.Incoterms,
-			&contract.InsuranceCostUSD,
-			&contract.FreightCostUSD,
 			&contract.CreatedAt,
 			&contract.UpdatedAt,
 		)
@@ -170,9 +156,8 @@ func (r *ExportContractRepository) GetByReportID(ctx context.Context, reportID i
 	query := `
 		SELECT 
 			id, enterprise_id, report_id, contract_number, contract_date, country,
-			volume_t, price_usd_per_t, currency, payment_term_days, shipment_date,
-			payment_status, exchange_rate, tnved_code, incoterms,
-			insurance_cost_usd, freight_cost_usd, created_at, updated_at
+			volume_t, price_contract, currency, payment_term_days, shipment_date,
+			payment_status, exchange_rate, created_at, updated_at
 		FROM export_contracts
 		WHERE report_id = $1
 		ORDER BY contract_date DESC
@@ -195,16 +180,12 @@ func (r *ExportContractRepository) GetByReportID(ctx context.Context, reportID i
 			&contract.ContractDate,
 			&contract.Country,
 			&contract.VolumeT,
-			&contract.PriceUSDPerT,
+			&contract.PriceContract,
 			&contract.Currency,
 			&contract.PaymentTermDays,
 			&contract.ShipmentDate,
 			&contract.PaymentStatus,
 			&contract.ExchangeRate,
-			&contract.TNVEDCode,
-			&contract.Incoterms,
-			&contract.InsuranceCostUSD,
-			&contract.FreightCostUSD,
 			&contract.CreatedAt,
 			&contract.UpdatedAt,
 		)
@@ -226,9 +207,8 @@ func (r *ExportContractRepository) GetAll(ctx context.Context) ([]*models.Export
 	query := `
 		SELECT 
 			id, enterprise_id, report_id, contract_number, contract_date, country,
-			volume_t, price_usd_per_t, currency, payment_term_days, shipment_date,
-			payment_status, exchange_rate, tnved_code, incoterms,
-			insurance_cost_usd, freight_cost_usd, created_at, updated_at
+			volume_t, price_contract, currency, payment_term_days, shipment_date,
+			payment_status, exchange_rate, created_at, updated_at
 		FROM export_contracts
 		ORDER BY contract_date DESC
 	`
@@ -250,16 +230,12 @@ func (r *ExportContractRepository) GetAll(ctx context.Context) ([]*models.Export
 			&contract.ContractDate,
 			&contract.Country,
 			&contract.VolumeT,
-			&contract.PriceUSDPerT,
+			&contract.PriceContract,
 			&contract.Currency,
 			&contract.PaymentTermDays,
 			&contract.ShipmentDate,
 			&contract.PaymentStatus,
 			&contract.ExchangeRate,
-			&contract.TNVEDCode,
-			&contract.Incoterms,
-			&contract.InsuranceCostUSD,
-			&contract.FreightCostUSD,
 			&contract.CreatedAt,
 			&contract.UpdatedAt,
 		)
@@ -281,10 +257,9 @@ func (r *ExportContractRepository) Update(ctx context.Context, contract *models.
 	query := `
 		UPDATE export_contracts
 		SET contract_number = $1, contract_date = $2, country = $3,
-		    volume_t = $4, price_usd_per_t = $5, currency = $6,
+		    volume_t = $4, price_contract = $5, currency = $6,
 		    payment_term_days = $7, shipment_date = $8, payment_status = $9,
-		    exchange_rate = $10, tnved_code = $11, incoterms = $12,
-		    insurance_cost_usd = $13, freight_cost_usd = $14, updated_at = CURRENT_TIMESTAMP
+		    exchange_rate = $10, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $15
 	`
 
@@ -293,16 +268,12 @@ func (r *ExportContractRepository) Update(ctx context.Context, contract *models.
 		contract.ContractDate,
 		contract.Country,
 		contract.VolumeT,
-		contract.PriceUSDPerT,
+		contract.PriceContract,
 		contract.Currency,
 		contract.PaymentTermDays,
 		contract.ShipmentDate,
 		contract.PaymentStatus,
 		contract.ExchangeRate,
-		contract.TNVEDCode,
-		contract.Incoterms,
-		contract.InsuranceCostUSD,
-		contract.FreightCostUSD,
 		contract.ID,
 	)
 

@@ -227,8 +227,8 @@ func (s *ReportService) parseExportContracts(ctx context.Context, xlFile *exceli
 		}
 
 		// Парсим цену
-		priceUSDPerT, err := parseFloat(strings.TrimSpace(row[4]))
-		if err != nil || priceUSDPerT <= 0 {
+		priceContract, err := parseFloat(strings.TrimSpace(row[4]))
+		if err != nil || priceContract <= 0 {
 			log.Printf("⚠️  [Parser] Row %d skipped: invalid price '%s': %v", i+1, row[4], err)
 			skippedCount++
 			continue
@@ -265,7 +265,7 @@ func (s *ReportService) parseExportContracts(ctx context.Context, xlFile *exceli
 			ContractDate:    contractDate,
 			Country:         strings.TrimSpace(row[2]),
 			VolumeT:         volumeT,
-			PriceUSDPerT:    priceUSDPerT,
+			PriceContract:   priceContract,
 			Currency:        strings.TrimSpace(row[5]),
 			PaymentTermDays: paymentTermDays,
 			ShipmentDate:    shipmentDate,
@@ -300,6 +300,8 @@ func (s *ReportService) parseBalanceSheet(ctx context.Context, xlFile *excelize.
 	enterpriseID := int64(1)
 
 	sheetName := xlFile.GetSheetName(0)
+	
+	// 🔴 Получаем количество строк
 	rows, err := xlFile.GetRows(sheetName)
 	if err != nil {
 		return fmt.Errorf("failed to get rows from sheet: %w", err)
@@ -316,75 +318,107 @@ func (s *ReportService) parseBalanceSheet(ctx context.Context, xlFile *excelize.
 		log.Printf("📋 [Parser] Header row: %v", rows[0])
 	}
 
-	// Парсим данные из второй строки (индекс 1)
-	// Ожидаемая структура:
-	// 0:Дата | 1:ДС BYN | 2:ДС USD | 3:КФВ | 4:Дебиторка | 5:НДС получ | 6:Запасы | 7:Сырьё | 8:НЗП | 9:ГП | 10:ОС | 11:НМА | 12:Кредиторка | 13:НДС упл | 14:ЗП | 15:Кратк.кредиты | 16:Долг.кредиты | 17:УК | 18:НП
+	balances := []*models.BalanceSheet{}
+	skippedCount := 0
 
-	// ✅ Парсим дату отчёта
-	reportDate, err := parseExcelDate(rows[1][0])
-	if err != nil || reportDate.IsZero() {
-		log.Printf("⚠️  [Parser] Invalid report date '%s', using current date", rows[1][0])
-		reportDate = time.Now()
+	// 🔴 Парсим ВСЕ строки данных (начиная с индекса 1)
+	for i := 1; i < len(rows); i++ {
+		row := rows[i]
+		
+		// 🔍 Лог для отладки
+		log.Printf("🔍 [Parser] Row %d: %v (len=%d)", i+1, row, len(row))
+
+		// Пропускаем пустые строки
+		if len(row) < 2 || isEmptyRow(row) {
+			log.Printf("⚠️  [Parser] Row %d skipped: empty row", i+1)
+			skippedCount++
+			continue
+		}
+
+		// ✅ Парсим дату отчёта через GetCellValue (более надёжно)
+		cellDate, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("A%d", i+1))
+		reportDate, err := parseExcelDate(cellDate)
+		if err != nil || reportDate.IsZero() {
+			// Пробуем из rows
+			reportDate, err = parseExcelDate(row[0])
+			if err != nil || reportDate.IsZero() {
+				log.Printf("⚠️  [Parser] Row %d skipped: invalid report date '%s': %v", i+1, row[0], err)
+				skippedCount++
+				continue
+			}
+		}
+		log.Printf("📅 [Parser] Row %d - Report date: %s", i+1, reportDate.Format("02.01.2006"))
+
+		// 🔴 Парсим каждое поле через GetCellValue для надёжности
+		cashBYN := getFloatFromCell(xlFile, sheetName, i+1, 2)  // Колонка B
+		cashUSD := getFloatFromCell(xlFile, sheetName, i+1, 3)  // Колонка C
+		shortTermInvestments := getFloatFromCell(xlFile, sheetName, i+1, 4)
+		accountsReceivable := getFloatFromCell(xlFile, sheetName, i+1, 5)
+		vatReceivable := getFloatFromCell(xlFile, sheetName, i+1, 6)
+		inventories := getFloatFromCell(xlFile, sheetName, i+1, 7)
+		rawMaterials := getFloatFromCell(xlFile, sheetName, i+1, 8)
+		workInProgress := getFloatFromCell(xlFile, sheetName, i+1, 9)
+		finishedGoods := getFloatFromCell(xlFile, sheetName, i+1, 10)
+		propertyPlantEquipment := getFloatFromCell(xlFile, sheetName, i+1, 11)
+		intangibleAssets := getFloatFromCell(xlFile, sheetName, i+1, 12)
+		accountsPayable := getFloatFromCell(xlFile, sheetName, i+1, 13)
+		vatPayable := getFloatFromCell(xlFile, sheetName, i+1, 14)
+		payrollPayable := getFloatFromCell(xlFile, sheetName, i+1, 15)
+		shortTermDebt := getFloatFromCell(xlFile, sheetName, i+1, 16)
+		longTermDebt := getFloatFromCell(xlFile, sheetName, i+1, 17)
+		authorizedCapital := getFloatFromCell(xlFile, sheetName, i+1, 18)
+		retainedEarnings := getFloatFromCell(xlFile, sheetName, i+1, 19)
+
+		// 🔍 Лог ключевых показателей
+		log.Printf("💰 [Parser] Row %d - Cash BYN=%.0f, Cash USD=%.0f, Receivables=%.0f, Payables=%.0f",
+			i+1, cashBYN, cashUSD, accountsReceivable, accountsPayable)
+
+		balance := &models.BalanceSheet{
+			EnterpriseID:           enterpriseID,
+			ReportID:               &reportID,
+			ReportDate:             reportDate,
+			CashBYN:                cashBYN,
+			CashUSD:                cashUSD,
+			ShortTermInvestments:   shortTermInvestments,
+			AccountsReceivable:     accountsReceivable,
+			VATReceivable:          vatReceivable,
+			Inventories:            inventories,
+			RawMaterials:           rawMaterials,
+			WorkInProgress:         workInProgress,
+			FinishedGoods:          finishedGoods,
+			PropertyPlantEquipment: propertyPlantEquipment,
+			IntangibleAssets:       intangibleAssets,
+			AccountsPayable:        accountsPayable,
+			VATPayable:             vatPayable,
+			PayrollPayable:         payrollPayable,
+			ShortTermDebt:          shortTermDebt,
+			LongTermDebt:           longTermDebt,
+			AuthorizedCapital:      authorizedCapital,
+			RetainedEarnings:       retainedEarnings,
+		}
+
+		balances = append(balances, balance)
+		log.Printf("✅ [Parser] Row %d parsed successfully", i+1)
 	}
-	log.Printf("📅 [Parser] Report date: %s", reportDate.Format("02.01.2006"))
 
-	// Парсим числовые поля с логированием ошибок
-	cashBYN, _ := parseFloat(strings.TrimSpace(rows[1][1]))
-	cashUSD, _ := parseFloat(strings.TrimSpace(rows[1][2]))
-	shortTermInvestments, _ := parseFloat(strings.TrimSpace(rows[1][3]))
-	accountsReceivable, _ := parseFloat(strings.TrimSpace(rows[1][4]))
-	vatReceivable, _ := parseFloat(strings.TrimSpace(rows[1][5]))
-	inventories, _ := parseFloat(strings.TrimSpace(rows[1][6]))
-	rawMaterials, _ := parseFloat(strings.TrimSpace(rows[1][7]))
-	workInProgress, _ := parseFloat(strings.TrimSpace(rows[1][8]))
-	finishedGoods, _ := parseFloat(strings.TrimSpace(rows[1][9]))
-	propertyPlantEquipment, _ := parseFloat(strings.TrimSpace(rows[1][10]))
-	intangibleAssets, _ := parseFloat(strings.TrimSpace(rows[1][11]))
-	accountsPayable, _ := parseFloat(strings.TrimSpace(rows[1][12]))
-	vatPayable, _ := parseFloat(strings.TrimSpace(rows[1][13]))
-	payrollPayable, _ := parseFloat(strings.TrimSpace(rows[1][14]))
-	shortTermDebt, _ := parseFloat(strings.TrimSpace(rows[1][15]))
-	longTermDebt, _ := parseFloat(strings.TrimSpace(rows[1][16]))
-	authorizedCapital, _ := parseFloat(strings.TrimSpace(rows[1][17]))
-	retainedEarnings, _ := parseFloat(strings.TrimSpace(rows[1][18]))
+	log.Printf("📊 [Parser] Balance sheet summary: parsed %d, skipped %d", len(balances), skippedCount)
 
-	// 🔍 Лог ключевых показателей для отладки
-	log.Printf("💰 [Parser] Key figures: Cash BYN=%.0f, Cash USD=%.0f, Receivables=%.0f, Payables=%.0f",
-		cashBYN, cashUSD, accountsReceivable, accountsPayable)
-
-	balance := &models.BalanceSheet{
-		EnterpriseID:           enterpriseID,
-		ReportID:               &reportID,
-		ReportDate:             reportDate,
-		CashBYN:                cashBYN,
-		CashUSD:                cashUSD,
-		ShortTermInvestments:   shortTermInvestments,
-		AccountsReceivable:     accountsReceivable,
-		VATReceivable:          vatReceivable,
-		Inventories:            inventories,
-		RawMaterials:           rawMaterials,
-		WorkInProgress:         workInProgress,
-		FinishedGoods:          finishedGoods,
-		PropertyPlantEquipment: propertyPlantEquipment,
-		IntangibleAssets:       intangibleAssets,
-		AccountsPayable:        accountsPayable,
-		VATPayable:             vatPayable,
-		PayrollPayable:         payrollPayable,
-		ShortTermDebt:          shortTermDebt,
-		LongTermDebt:           longTermDebt,
-		AuthorizedCapital:      authorizedCapital,
-		RetainedEarnings:       retainedEarnings,
+	if len(balances) == 0 {
+		return fmt.Errorf("no valid balance sheet records found in file")
 	}
 
-	// Сохраняем в БД
-	if err := s.balanceRepo.Create(ctx, balance); err != nil {
-		log.Printf("❌ [Parser] Failed to save balance sheet: %v", err)
-		return fmt.Errorf("failed to save balance sheet: %w", err)
+	// 🔴 Сохраняем ВСЕ записи в БД
+	for i, balance := range balances {
+		if err := s.balanceRepo.Create(ctx, balance); err != nil {
+			log.Printf("❌ [Parser] Failed to save balance %d: %v", i+1, err)
+			return fmt.Errorf("failed to save balance sheet #%d: %w", i+1, err)
+		}
+		log.Printf("💾 [Parser] Saved balance sheet %d: date=%s", i+1, balance.ReportDate.Format("02.01.2006"))
 	}
 
-	log.Printf("✅ [Parser] Balance sheet saved successfully for report_id=%d", reportID)
 	return nil
 }
+
 
 // parseFinancialResults парсит отчёт о финансовых результатах из Excel
 func (s *ReportService) parseFinancialResults(ctx context.Context, xlFile *excelize.File, reportID int64) error {
@@ -402,109 +436,128 @@ func (s *ReportService) parseFinancialResults(ctx context.Context, xlFile *excel
 		return fmt.Errorf("financial results file is empty or has no data rows")
 	}
 
-	// 🔍 Лог заголовков
 	if len(rows) > 0 {
 		log.Printf("📋 [Parser] Header row: %v", rows[0])
 	}
 
-	// ✅ Парсим дату отчёта
-	reportDate, err := parseExcelDate(rows[1][0])
-	if err != nil || reportDate.IsZero() {
-		log.Printf("⚠️  [Parser] Invalid report date '%s', using current date", rows[1][0])
-		reportDate = time.Now()
+	results := []*models.FinancialResult{}
+	skippedCount := 0
+
+	// 🔴 Парсим ВСЕ строки
+	for i := 1; i < len(rows); i++ {
+		row := rows[i]
+		
+		if len(row) < 2 || isEmptyRow(row) {
+			log.Printf("⚠️  [Parser] Row %d skipped: empty row", i+1)
+			skippedCount++
+			continue
+		}
+
+		// Парсим дату
+		cellDate, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("A%d", i+1))
+		reportDate, err := parseExcelDate(cellDate)
+		if err != nil || reportDate.IsZero() {
+			reportDate, err = parseExcelDate(row[0])
+			if err != nil || reportDate.IsZero() {
+				log.Printf("⚠️  [Parser] Row %d skipped: invalid report date", i+1)
+				skippedCount++
+				continue
+			}
+		}
+
+		// Парсим период
+		cellPeriodStart, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("B%d", i+1))
+		periodStart, _ := parseExcelDate(cellPeriodStart)
+		if periodStart.IsZero() {
+			periodStart = reportDate.AddDate(0, -3, 0)
+		}
+
+		cellPeriodEnd, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("C%d", i+1))
+		periodEnd, _ := parseExcelDate(cellPeriodEnd)
+		if periodEnd.IsZero() {
+			periodEnd = reportDate
+		}
+
+		// 🔴 Парсим все поля через GetCellValue
+		revenueSales := getFloatFromCell(xlFile, sheetName, i+1, 4)
+		revenueExport := getFloatFromCell(xlFile, sheetName, i+1, 5)
+		revenueDomestic := getFloatFromCell(xlFile, sheetName, i+1, 6)
+		revenueOther := getFloatFromCell(xlFile, sheetName, i+1, 7)
+		revenueTotal := getFloatFromCell(xlFile, sheetName, i+1, 8)
+
+		costOfSales := getFloatFromCell(xlFile, sheetName, i+1, 9)
+		costRawMaterials := getFloatFromCell(xlFile, sheetName, i+1, 10)
+		costEnergy := getFloatFromCell(xlFile, sheetName, i+1, 11)
+		costLabor := getFloatFromCell(xlFile, sheetName, i+1, 12)
+		costDepreciation := getFloatFromCell(xlFile, sheetName, i+1, 13)
+		costOther := getFloatFromCell(xlFile, sheetName, i+1, 14)
+		costTotal := getFloatFromCell(xlFile, sheetName, i+1, 15)
+
+		commercialExpenses := getFloatFromCell(xlFile, sheetName, i+1, 16)
+		administrativeExpenses := getFloatFromCell(xlFile, sheetName, i+1, 17)
+		otherExpenses := getFloatFromCell(xlFile, sheetName, i+1, 18)
+
+		grossProfit := getFloatFromCell(xlFile, sheetName, i+1, 19)
+		operatingProfit := getFloatFromCell(xlFile, sheetName, i+1, 20)
+		profitBeforeTax := getFloatFromCell(xlFile, sheetName, i+1, 21)
+		taxExpense := getFloatFromCell(xlFile, sheetName, i+1, 22)
+		netProfit := getFloatFromCell(xlFile, sheetName, i+1, 23)
+
+		ebitda := getFloatFromCell(xlFile, sheetName, i+1, 24)
+		operatingMargin := getFloatFromCell(xlFile, sheetName, i+1, 25)
+		netMargin := getFloatFromCell(xlFile, sheetName, i+1, 26)
+
+		log.Printf("💰 [Parser] Row %d - Revenue: total=%.0f, Net profit: %.0f", i+1, revenueTotal, netProfit)
+
+		result := &models.FinancialResult{
+			EnterpriseID:           enterpriseID,
+			ReportID:               &reportID,
+			ReportDate:             reportDate,
+			PeriodStart:            periodStart,
+			PeriodEnd:              periodEnd,
+			RevenueSales:           revenueSales,
+			RevenueExport:          revenueExport,
+			RevenueDomestic:        revenueDomestic,
+			RevenueOther:           revenueOther,
+			RevenueTotal:           revenueTotal,
+			CostOfSales:            costOfSales,
+			CostRawMaterials:       costRawMaterials,
+			CostEnergy:             costEnergy,
+			CostLabor:              costLabor,
+			CostDepreciation:       costDepreciation,
+			CostOther:              costOther,
+			CostTotal:              costTotal,
+			CommercialExpenses:     commercialExpenses,
+			AdministrativeExpenses: administrativeExpenses,
+			OtherExpenses:          otherExpenses,
+			GrossProfit:            grossProfit,
+			OperatingProfit:        operatingProfit,
+			ProfitBeforeTax:        profitBeforeTax,
+			TaxExpense:             taxExpense,
+			NetProfit:              netProfit,
+			EBITDA:                 &ebitda,
+			OperatingMargin:        &operatingMargin,
+			NetMargin:              &netMargin,
+		}
+
+		results = append(results, result)
 	}
 
-	// ✅ Парсим период
-	periodStart, err := parseExcelDate(rows[1][1])
-	if err != nil || periodStart.IsZero() {
-		log.Printf("⚠️  [Parser] Invalid period_start '%s', using report_date - 3 months", rows[1][1])
-		periodStart = reportDate.AddDate(0, -3, 0)
+	log.Printf("📊 [Parser] Financial results summary: parsed %d, skipped %d", len(results), skippedCount)
+
+	if len(results) == 0 {
+		return fmt.Errorf("no valid financial results found in file")
 	}
 
-	periodEnd, err := parseExcelDate(rows[1][2])
-	if err != nil || periodEnd.IsZero() {
-		log.Printf("⚠️  [Parser] Invalid period_end '%s', using report_date", rows[1][2])
-		periodEnd = reportDate
+	// 🔴 Сохраняем ВСЕ записи
+	for i, result := range results {
+		if err := s.finResultRepo.Create(ctx, result); err != nil {
+			log.Printf("❌ [Parser] Failed to save result %d: %v", i+1, err)
+			return fmt.Errorf("failed to save financial result #%d: %w", i+1, err)
+		}
+		log.Printf("💾 [Parser] Saved financial result %d: date=%s", i+1, result.ReportDate.Format("02.01.2006"))
 	}
 
-	log.Printf("📅 [Parser] Period: %s — %s", periodStart.Format("02.01.2006"), periodEnd.Format("02.01.2006"))
-
-	// Парсим финансовые показатели с логированием
-	revenueSales, _ := parseFloat(strings.TrimSpace(rows[1][3]))
-	revenueExport, _ := parseFloat(strings.TrimSpace(rows[1][4]))
-	revenueDomestic, _ := parseFloat(strings.TrimSpace(rows[1][5]))
-	revenueOther, _ := parseFloat(strings.TrimSpace(rows[1][6]))
-	revenueTotal, _ := parseFloat(strings.TrimSpace(rows[1][7]))
-
-	costOfSales, _ := parseFloat(strings.TrimSpace(rows[1][8]))
-	costRawMaterials, _ := parseFloat(strings.TrimSpace(rows[1][9]))
-	costEnergy, _ := parseFloat(strings.TrimSpace(rows[1][10]))
-	costLabor, _ := parseFloat(strings.TrimSpace(rows[1][11]))
-	costDepreciation, _ := parseFloat(strings.TrimSpace(rows[1][12]))
-	costOther, _ := parseFloat(strings.TrimSpace(rows[1][13]))
-	costTotal, _ := parseFloat(strings.TrimSpace(rows[1][14]))
-
-	commercialExpenses, _ := parseFloat(strings.TrimSpace(rows[1][15]))
-	administrativeExpenses, _ := parseFloat(strings.TrimSpace(rows[1][16]))
-	otherExpenses, _ := parseFloat(strings.TrimSpace(rows[1][17]))
-
-	grossProfit, _ := parseFloat(strings.TrimSpace(rows[1][18]))
-	operatingProfit, _ := parseFloat(strings.TrimSpace(rows[1][19]))
-	profitBeforeTax, _ := parseFloat(strings.TrimSpace(rows[1][20]))
-	taxExpense, _ := parseFloat(strings.TrimSpace(rows[1][21]))
-	netProfit, _ := parseFloat(strings.TrimSpace(rows[1][22]))
-
-	ebitda, _ := parseFloat(strings.TrimSpace(rows[1][23]))
-	operatingMargin, _ := parseFloat(strings.TrimSpace(rows[1][24]))
-	netMargin, _ := parseFloat(strings.TrimSpace(rows[1][25]))
-
-	// 🔍 Лог ключевых показателей
-	log.Printf("💰 [Parser] Revenue: total=%.0f, export=%.0f; Costs: total=%.0f; Net profit: %.0f",
-		revenueTotal, revenueExport, costTotal, netProfit)
-
-	// Валидация: прибыль не должна быть отрицательной при положительной выручке (опционально)
-	// if revenueTotal > 0 && netProfit < -revenueTotal*0.5 {
-	// 	log.Printf("⚠️  [Parser] Suspicious net profit: %.0f (revenue: %.0f)", netProfit, revenueTotal)
-	// }
-
-	result := &models.FinancialResult{
-		EnterpriseID:           enterpriseID,
-		ReportID:               &reportID,
-		ReportDate:             reportDate,
-		PeriodStart:            periodStart,
-		PeriodEnd:              periodEnd,
-		RevenueSales:           revenueSales,
-		RevenueExport:          revenueExport,
-		RevenueDomestic:        revenueDomestic,
-		RevenueOther:           revenueOther,
-		RevenueTotal:           revenueTotal,
-		CostOfSales:            costOfSales,
-		CostRawMaterials:       costRawMaterials,
-		CostEnergy:             costEnergy,
-		CostLabor:              costLabor,
-		CostDepreciation:       costDepreciation,
-		CostOther:              costOther,
-		CostTotal:              costTotal,
-		CommercialExpenses:     commercialExpenses,
-		AdministrativeExpenses: administrativeExpenses,
-		OtherExpenses:          otherExpenses,
-		GrossProfit:            grossProfit,
-		OperatingProfit:        operatingProfit,
-		ProfitBeforeTax:        profitBeforeTax,
-		TaxExpense:             taxExpense,
-		NetProfit:              netProfit,
-		EBITDA:                 &ebitda,
-		OperatingMargin:        &operatingMargin,
-		NetMargin:              &netMargin,
-	}
-
-	// Сохраняем в БД
-	if err := s.finResultRepo.Create(ctx, result); err != nil {
-		log.Printf("❌ [Parser] Failed to save financial results: %v", err)
-		return fmt.Errorf("failed to save financial results: %w", err)
-	}
-
-	log.Printf("✅ [Parser] Financial results saved successfully for report_id=%d", reportID)
 	return nil
 }
 // parseCreditAgreements парсит кредитные договоры из Excel
@@ -523,6 +576,11 @@ func (s *ReportService) parseCreditAgreements(ctx context.Context, xlFile *excel
 		return fmt.Errorf("credit agreements file is empty or has no data rows")
 	}
 
+	// 🔍 Лог заголовков
+	if len(rows) > 0 {
+		log.Printf("📋 [Parser] Header row: %v", rows[0])
+	}
+
 	agreements := []*models.CreditAgreement{}
 	skippedCount := 0
 
@@ -530,46 +588,54 @@ func (s *ReportService) parseCreditAgreements(ctx context.Context, xlFile *excel
 		row := rows[i]
 		log.Printf("🔍 [Parser] Row %d: %v (len=%d)", i+1, row, len(row))
 		
-		if len(row) < 11 { // Теперь нужно 11 колонок (индекс 10 = срок в месяцах)
+		// Пропускаем пустые строки
+		if len(row) < 11 || isEmptyRow(row) {
 			log.Printf("⚠️  [Parser] Row %d skipped: not enough columns (got %d, need 11)", i+1, len(row))
 			skippedCount++
 			continue
 		}
 
+		// 🔴 Используем GetCellValue для надёжного чтения
 		// Парсим даты
-		agreementDate, err := parseExcelDate(row[1])
+		cellDate, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("B%d", i+1))
+		agreementDate, err := parseExcelDate(cellDate)
 		if err != nil || agreementDate.IsZero() {
-			log.Printf("⚠️  [Parser] Row %d skipped: invalid agreement date '%s': %v", i+1, row[1], err)
+			log.Printf("⚠️  [Parser] Row %d skipped: invalid agreement date '%s': %v", i+1, cellDate, err)
 			skippedCount++
 			continue
 		}
 
-		maturityDate, err := parseExcelDate(row[9]) // Индекс 9 = Дата погашения
+		cellMaturity, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("J%d", i+1))
+		maturityDate, err := parseExcelDate(cellMaturity)
 		if err != nil || maturityDate.IsZero() {
-			log.Printf("⚠️  [Parser] Row %d skipped: invalid maturity date '%s': %v", i+1, row[9], err)
+			log.Printf("⚠️  [Parser] Row %d skipped: invalid maturity date '%s': %v", i+1, cellMaturity, err)
 			skippedCount++
 			continue
 		}
 
-		// ✅ Парсим сумму и ставку
-		principalAmount, err := parseFloat(strings.TrimSpace(row[4]))
+		// 🔴 Парсим сумму через GetCellValue + parseFloat
+		cellAmount, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("E%d", i+1))
+		principalAmount, err := parseFloat(cellAmount)
+		if err != nil || principalAmount <= 0 {
+			log.Printf("⚠️  [Parser] Row %d skipped: invalid amount '%s': %v", i+1, cellAmount, err)
+			skippedCount++
+			continue
+		}
+
+		// 🔴 Парсим ставку
+		cellRate, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("G%d", i+1))
+		interestRate, err := parseFloat(cellRate)
 		if err != nil {
-			log.Printf("⚠️  [Parser] Row %d skipped: invalid amount '%s': %v", i+1, row[4], err)
+			log.Printf("⚠️  [Parser] Row %d skipped: invalid rate '%s': %v", i+1, cellRate, err)
 			skippedCount++
 			continue
 		}
 
-		interestRate, err := parseFloat(strings.TrimSpace(row[6]))
-		if err != nil {
-			log.Printf("⚠️  [Parser] Row %d skipped: invalid rate '%s': %v", i+1, row[6], err)
-			skippedCount++
-			continue
-		}
-
-		// ✅ ЧИТАЕМ СРОК ИЗ ФАЙЛА (колонка "Срок (мес.)" — индекс 10)
+		// ✅ ЧИТАЕМ СРОК ИЗ ФАЙЛА (колонка "Срок (мес.)" — индекс 10, колонка K)
 		termMonths := 0
-		if row[10] != "" {
-			if parsed, err := strconv.Atoi(strings.TrimSpace(row[10])); err == nil && parsed > 0 {
+		cellTerm, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("K%d", i+1))
+		if cellTerm != "" {
+			if parsed, err := strconv.Atoi(strings.TrimSpace(cellTerm)); err == nil && parsed > 0 {
 				termMonths = parsed
 				log.Printf("📅 [Parser] Using term from file: %d months", termMonths)
 			}
@@ -583,34 +649,42 @@ func (s *ReportService) parseCreditAgreements(ctx context.Context, xlFile *excel
 		}
 		
 		// ✅ Валидация: проверяем, что срок в допустимых пределах
-		// (предполагаем, что ограничение в БД: 1 <= term_months <= 360)
 		if termMonths < 1 || termMonths > 360 {
 			log.Printf("⚠️  [Parser] Row %d skipped: term_months %d out of range [1, 360]", i+1, termMonths)
 			skippedCount++
 			continue
 		}
 
+		// 🔴 Читаем остальные поля
+		cellNumber, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("A%d", i+1))
+		cellCreditor, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("C%d", i+1))
+		cellCountry, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("D%d", i+1))
+		cellCurrency, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("F%d", i+1))
+		cellRateType, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("H%d", i+1))
+		cellCollateral, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("L%d", i+1))
+		cellStatus, _ := xlFile.GetCellValue(sheetName, fmt.Sprintf("M%d", i+1))
+
 		agreement := &models.CreditAgreement{
 			EnterpriseID:    enterpriseID,
 			ReportID:        &reportID,
-			AgreementNumber: strings.TrimSpace(row[0]),
+			AgreementNumber: strings.TrimSpace(cellNumber),
 			AgreementDate:   agreementDate,
-			CreditorName:    strings.TrimSpace(row[2]),
-			CreditorCountry: stringPtr(strings.TrimSpace(row[3])),
+			CreditorName:    strings.TrimSpace(cellCreditor),
+			CreditorCountry: stringPtr(strings.TrimSpace(cellCountry)),
 			PrincipalAmount: principalAmount,
-			Currency:        strings.TrimSpace(row[5]),
+			Currency:        strings.TrimSpace(cellCurrency),
 			InterestRate:    interestRate,
-			RateType:        strings.TrimSpace(row[7]),
-			StartDate:       agreementDate, // или row[8] если нужна отдельная дата начала
+			RateType:        strings.TrimSpace(cellRateType),
+			StartDate:       agreementDate,
 			MaturityDate:    maturityDate,
-			TermMonths:      termMonths, // ✅ Используем прочитанное/рассчитанное значение
-			CollateralType:  stringPtr(strings.TrimSpace(row[11])), // Индекс 11 = Тип обеспечения
-			Status:          strings.TrimSpace(row[12]),            // Индекс 12 = Статус
+			TermMonths:      termMonths,
+			CollateralType:  stringPtr(strings.TrimSpace(cellCollateral)),
+			Status:          strings.TrimSpace(cellStatus),
 		}
 
 		agreements = append(agreements, agreement)
-		log.Printf("✅ [Parser] Row %d parsed: contract=%s, term=%d months", 
-			i+1, agreement.AgreementNumber, termMonths)
+		log.Printf("✅ [Parser] Row %d parsed: contract=%s, amount=%.0f, term=%d months", 
+			i+1, agreement.AgreementNumber, principalAmount, termMonths)
 	}
 
 	log.Printf("📊 [Parser] Summary: parsed %d agreements, skipped %d rows", len(agreements), skippedCount)
@@ -719,15 +793,9 @@ func parseFloat(s string) (float64, error) {
 	return strconv.ParseFloat(s,64)
 }
 
-func float64Ptr(v float64) *float64 {
-	return &v
-}
-
-// internal/service/report_service.go — добавьте в конец файла
 
 // excelDateToTime конвертирует серийный номер даты Excel в time.Time
-// Excel хранит даты как количество дней с 30.12.1899
-// См: https://docs.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
+// Excel хранит даты как количество дней с 30.12.1899\
 func excelDateToTime(excelDate float64) (time.Time, error) {
 	if excelDate == 0 {
 		return time.Time{}, nil
@@ -748,22 +816,80 @@ func excelDateToTime(excelDate float64) (time.Time, error) {
 	return result, nil
 }
 
-// parseExcelDate пытается распарсить дату из Excel (строка или серийный номер)
+// parseExcelDate пытается распарсить дату из Excel (множество форматов)
 func parseExcelDate(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return time.Time{}, nil
 	}
-	
-	// Сначала пробуем как обычную строку ДД.ММ.ГГГГ
-	if t, err := time.Parse("02.01.2006", value); err == nil {
-		return t, nil
+
+	// Список форматов для попытки парсинга (в порядке приоритета)
+	dateFormats := []string{
+		"02.01.2006",           // ДД.ММ.ГГГГ (русский)
+		"02/01/2006",           // ДД/ММ/ГГГГ
+		"01/02/2006",           // ММ/ДД/ГГГГ (американский) ⭐ НУЖЕН
+		"01/02/2006 15:04:05",  // ММ/ДД/ГГГГ ЧЧ:ММ:СС ⭐ НУЖЕН
+		"02.01.2006 15:04:05",  // ДД.ММ.ГГГГ ЧЧ:ММ:СС
+		"2006-01-02",           // ГГГГ-ММ-ДД (ISO)
+		"2006-01-02 15:04:05",  // ГГГГ-ММ-ДД ЧЧ:ММ:СС
+		"02-Jan-2006",          // ДД-Ммм-ГГГГ
+		"Jan 2, 2006",          // Ммм Д, ГГГГ
 	}
-	
+
+	// Пробуем каждый формат
+	for _, format := range dateFormats {
+		if t, err := time.Parse(format, value); err == nil {
+			return t, nil
+		}
+	}
+
 	// Если не вышло — пробуем как серийный номер Excel
 	if serial, err := strconv.ParseFloat(value, 64); err == nil && serial > 0 {
 		return excelDateToTime(serial)
 	}
-	
+
+	// Последняя попытка: убрать время и попробовать снова
+	// Например: "01/12/2024 0:00:00" → "01/12/2024"
+	if idx := strings.Index(value, " "); idx > 0 {
+		datePart := strings.TrimSpace(value[:idx])
+		for _, format := range []string{"02.01.2006", "02/01/2006", "01/02/2006", "2006-01-02"} {
+			if t, err := time.Parse(format, datePart); err == nil {
+				return t, nil
+			}
+		}
+	}
+
 	return time.Time{}, fmt.Errorf("unable to parse date: %s", value)
+}
+// 🔴 Вспомогательная функция для получения float из ячейки
+func getFloatFromCell(xlFile *excelize.File, sheet string, row, col int) float64 {
+	cellName := fmt.Sprintf("%c%d", 'A'+col-1, row)
+	value, err := xlFile.GetCellValue(sheet, cellName)
+	if err != nil || value == "" {
+		return 0
+	}
+	
+	// Очищаем значение (пробелы, пробелы-неразрывные, etc.)
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, " ", "")
+	value = strings.ReplaceAll(value, "\u00A0", "") // Неразрывный пробел
+	
+	// Пробуем распарсить
+	result, err := parseFloat(value)
+	if err != nil {
+		log.Printf("⚠️  [Parser] Failed to parse cell %s='%s': %v", cellName, value, err)
+		return 0
+	}
+	
+	return result
+}
+
+// 🔴 Проверка на пустую строку
+func isEmptyRow(row []string) bool {
+	for _, cell := range row {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
 }

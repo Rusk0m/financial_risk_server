@@ -5,159 +5,120 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"financial-risk-server/internal/domain/models"
 	"financial-risk-server/internal/repository/interfaces"
 )
 
-// MarketDataRepository реализует интерфейс для работы с рыночными данными
 type MarketDataRepository struct {
 	db *sql.DB
 }
 
-// NewMarketDataRepository создаёт новый репозиторий рыночных данных
 func NewMarketDataRepository(db *sql.DB) interfaces.MarketDataRepository {
 	return &MarketDataRepository{db: db}
 }
 
-// Create создаёт новую запись рыночных данных
 func (r *MarketDataRepository) Create(ctx context.Context, data *models.MarketData) error {
 	query := `
-		INSERT INTO market_data (data_date, currency_pair, exchange_rate, volatility_30d, potassium_price_usd, source)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (data_date, currency_pair) DO UPDATE
-		SET exchange_rate = EXCLUDED.exchange_rate,
-		    volatility_30d = EXCLUDED.volatility_30d,
-		    potassium_price_usd = EXCLUDED.potassium_price_usd,
-		    source = EXCLUDED.source
-		RETURNING id, created_at
+		INSERT INTO market_data (
+			data_date, currency_pair, exchange_rate, potassium_price_usd,
+			source, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (data_date, currency_pair) DO UPDATE SET
+			exchange_rate = EXCLUDED.exchange_rate,
+			potassium_price_usd = EXCLUDED.potassium_price_usd,
+			source = EXCLUDED.source,
+			created_at = EXCLUDED.created_at
+		RETURNING id
 	`
 
 	var id int64
-	var createdAt time.Time
 	err := r.db.QueryRowContext(ctx, query,
 		data.DataDate,
 		data.CurrencyPair,
 		data.ExchangeRate,
-		data.Volatility30d,
 		data.PotassiumPriceUSD,
 		data.Source,
-	).Scan(&id, &createdAt)
+		data.CreatedAt,
+	).Scan(&id)
 
 	if err != nil {
-		return fmt.Errorf("failed to create or update market data: %w", err)
+		return fmt.Errorf("failed to create market  %w", err)
 	}
 
 	data.ID = id
-	data.CreatedAt = createdAt
-
 	return nil
 }
 
-// GetByID получает запись по ID
-func (r *MarketDataRepository) GetByID(ctx context.Context, id int64) (*models.MarketData, error) {
+func (r *MarketDataRepository) GetByDateAndPair(ctx context.Context, date time.Time, pair string) (*models.MarketData, error) {
 	query := `
-		SELECT id, data_date, currency_pair, exchange_rate, volatility_30d, potassium_price_usd, source, created_at
+		SELECT id, data_date, currency_pair, exchange_rate, potassium_price_usd,
+		       source, created_at
 		FROM market_data
-		WHERE id = $1
+		WHERE data_date = $1 AND currency_pair = $2
 	`
 
 	data := &models.MarketData{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&data.ID,
-		&data.DataDate,
-		&data.CurrencyPair,
-		&data.ExchangeRate,
-		&data.Volatility30d,
-		&data.PotassiumPriceUSD,
-		&data.Source,
-		&data.CreatedAt,
+	err := r.db.QueryRowContext(ctx, query, date, pair).Scan(
+		&data.ID, &data.DataDate, &data.CurrencyPair,
+		&data.ExchangeRate, &data.PotassiumPriceUSD,
+		&data.Source, &data.CreatedAt,
 	)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("market data not found with id %d", id)
+			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to get market data: %w", err)
+		return nil, fmt.Errorf("failed to get market  %w", err)
 	}
 
 	return data, nil
 }
 
-// GetAll получает записи с фильтрацией
-func (r *MarketDataRepository) GetAll(ctx context.Context, filter interfaces.MarketDataFilter) ([]*models.MarketData, error) {
+func (r *MarketDataRepository) GetHistory(ctx context.Context, pair string, days int) ([]*models.MarketData, error) {
 	query := `
-		SELECT id, data_date, currency_pair, exchange_rate, volatility_30d, potassium_price_usd, source, created_at
+		SELECT id, data_date, currency_pair, exchange_rate, potassium_price_usd,
+		       source, created_at
 		FROM market_data
-		WHERE 1=1
+		WHERE currency_pair = $1
+		  AND data_date >= $2
+		ORDER BY data_date DESC
 	`
 
-	args := []interface{}{}
-	argID := 1
-
-	// Фильтрация по дате
-	if filter.DataDate != nil {
-		query += fmt.Sprintf(" AND data_date = $%d", argID)
-		args = append(args, *filter.DataDate)
-		argID++
-	}
-
-	// Фильтрация по валютной паре
-	if filter.CurrencyPair != nil {
-		query += fmt.Sprintf(" AND currency_pair = $%d", argID)
-		args = append(args, *filter.CurrencyPair)
-		argID++
-	}
-
-	// Сортировка и пагинация
-	query += " ORDER BY data_date DESC"
-	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", argID)
-		args = append(args, filter.Limit)
-		argID++
-	}
-	if filter.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", argID)
-		args = append(args, filter.Offset)
-	}
-
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	fromDate := time.Now().AddDate(0, 0, -days)
+	rows, err := r.db.QueryContext(ctx, query, pair, fromDate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query market data: %w", err)
+		return nil, fmt.Errorf("failed to query market data history: %w", err)
 	}
 	defer rows.Close()
 
-	dataList := []*models.MarketData{}
+	data := make([]*models.MarketData, 0)
 	for rows.Next() {
-		data := &models.MarketData{}
+		item := &models.MarketData{}
 		err := rows.Scan(
-			&data.ID,
-			&data.DataDate,
-			&data.CurrencyPair,
-			&data.ExchangeRate,
-			&data.Volatility30d,
-			&data.PotassiumPriceUSD,
-			&data.Source,
-			&data.CreatedAt,
+			&item.ID, &item.DataDate, &item.CurrencyPair,
+			&item.ExchangeRate, &item.PotassiumPriceUSD,
+			&item.Source, &item.CreatedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan market data: %w", err)
+			return nil, fmt.Errorf("failed to scan market  %w", err)
 		}
-		dataList = append(dataList, data)
+		data = append(data, item)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	return dataList, nil
+	return data, nil
 }
 
-// GetLatestByCurrencyPair получает последнюю запись по валютной паре
-func (r *MarketDataRepository) GetLatestByCurrencyPair(ctx context.Context, currencyPair string) (*models.MarketData, error) {
+func (r *MarketDataRepository) GetLatest(ctx context.Context, pair string) (*models.MarketData, error) {
 	query := `
-		SELECT id, data_date, currency_pair, exchange_rate, volatility_30d, potassium_price_usd, source, created_at
+		SELECT id, data_date, currency_pair, exchange_rate, potassium_price_usd,
+		       source, created_at
 		FROM market_data
 		WHERE currency_pair = $1
 		ORDER BY data_date DESC
@@ -165,20 +126,15 @@ func (r *MarketDataRepository) GetLatestByCurrencyPair(ctx context.Context, curr
 	`
 
 	data := &models.MarketData{}
-	err := r.db.QueryRowContext(ctx, query, currencyPair).Scan(
-		&data.ID,
-		&data.DataDate,
-		&data.CurrencyPair,
-		&data.ExchangeRate,
-		&data.Volatility30d,
-		&data.PotassiumPriceUSD,
-		&data.Source,
-		&data.CreatedAt,
+	err := r.db.QueryRowContext(ctx, query, pair).Scan(
+		&data.ID, &data.DataDate, &data.CurrencyPair,
+		&data.ExchangeRate, &data.PotassiumPriceUSD,
+		&data.Source, &data.CreatedAt,
 	)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("no market data found for currency pair %s", currencyPair)
+			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get latest market data: %w", err)
 	}
@@ -186,22 +142,62 @@ func (r *MarketDataRepository) GetLatestByCurrencyPair(ctx context.Context, curr
 	return data, nil
 }
 
-// Update обновляет запись
+// GetLatestRates получает последние курсы всех валют
+func (r *MarketDataRepository) GetLatestRates(ctx context.Context) (map[string]float64, error) {
+	query := `
+		SELECT DISTINCT ON (currency_pair)
+			currency_pair, exchange_rate
+		FROM market_data
+		WHERE currency_pair IN ('BYN/USD', 'BYN/EUR', 'BYN/CNY')
+		  AND exchange_rate IS NOT NULL
+		ORDER BY currency_pair, data_date DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest rates: %w", err)
+	}
+	defer rows.Close()
+
+	rates := make(map[string]float64)
+	for rows.Next() {
+		var pair string
+		var rate sql.NullFloat64
+		err := rows.Scan(&pair, &rate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan rate: %w", err)
+		}
+		if rate.Valid {
+			rates[pair] = rate.Float64
+		}
+	}
+
+	// Fallback: если данных нет, возвращаем стандартные курсы
+	if len(rates) == 0 {
+		log.Printf("⚠️  [MarketData] No currency rates found, using fallback")
+		rates = map[string]float64{
+			"BYN/USD": 3.25,
+			"BYN/EUR": 3.55,
+			"BYN/CNY": 0.45,
+		}
+	}
+
+	return rates, nil
+}
+
 func (r *MarketDataRepository) Update(ctx context.Context, data *models.MarketData) error {
 	query := `
 		UPDATE market_data
-		SET exchange_rate = $1, volatility_30d = $2, potassium_price_usd = $3, source = $4
-		WHERE id = $5
+		SET exchange_rate = $1, potassium_price_usd = $2,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		data.ExchangeRate,
-		data.Volatility30d,
 		data.PotassiumPriceUSD,
-		data.Source,
 		data.ID,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to update market data: %w", err)
 	}
@@ -213,27 +209,6 @@ func (r *MarketDataRepository) Update(ctx context.Context, data *models.MarketDa
 
 	if rowsAffected == 0 {
 		return fmt.Errorf("market data not found with id %d", data.ID)
-	}
-
-	return nil
-}
-
-// Delete удаляет запись по ID
-func (r *MarketDataRepository) Delete(ctx context.Context, id int64) error {
-	query := `DELETE FROM market_data WHERE id = $1`
-
-	result, err := r.db.ExecContext(ctx, query, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete market data: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("market data not found with id %d", id)
 	}
 
 	return nil

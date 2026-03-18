@@ -18,6 +18,8 @@ type FinancialResultRepository interface {
 	
 	// GetByReportID получает отчёт из отчёта
 	GetByReportID(ctx context.Context, reportID int64) (*models.FinancialResult, error)
+
+	GetLatest(ctx context.Context,enterpriseID int64) (*models.FinancialResult, error)
 	
 	// GetAll получает все отчёты
 	GetAll(ctx context.Context) ([]*models.FinancialResult, error)

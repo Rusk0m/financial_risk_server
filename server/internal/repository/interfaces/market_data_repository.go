@@ -3,33 +3,25 @@ package interfaces
 import (
 	"context"
 	"financial-risk-server/internal/domain/models"
+	"time"
 )
 
-// MarketDataFilter параметры фильтрации рыночных данных
-type MarketDataFilter struct {
-	DataDate     *string // YYYY-MM-DD
-	CurrencyPair *string
-	Limit        int
-	Offset       int
-}
-
-// MarketDataRepository определяет методы для работы с рыночными данными
 type MarketDataRepository interface {
-	// Create создаёт новую запись рыночных данных
+	// Create создаёт новую запись
 	Create(ctx context.Context, data *models.MarketData) error
 	
-	// GetByID получает запись по ID
-	GetByID(ctx context.Context, id int64) (*models.MarketData, error)
+	// GetByDateAndPair получает запись по дате и типу
+	GetByDateAndPair(ctx context.Context, date time.Time, pair string) (*models.MarketData, error)
 	
-	// GetAll получает записи с фильтрацией
-	GetAll(ctx context.Context, filter MarketDataFilter) ([]*models.MarketData, error)
+	// GetHistory получает историю за период
+	GetHistory(ctx context.Context, pair string, days int) ([]*models.MarketData, error)
 	
-	// GetLatestByCurrencyPair получает последнюю запись по валютной паре
-	GetLatestByCurrencyPair(ctx context.Context, currencyPair string) (*models.MarketData, error)
+	// GetLatest получает последнюю запись
+	GetLatest(ctx context.Context, pair string) (*models.MarketData, error)
+	
+	// GetLatestRates получает последние курсы всех валют
+	GetLatestRates(ctx context.Context) (map[string]float64, error)
 	
 	// Update обновляет запись
 	Update(ctx context.Context, data *models.MarketData) error
-	
-	// Delete удаляет запись по ID
-	Delete(ctx context.Context, id int64) error
 }
